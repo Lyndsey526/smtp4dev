@@ -20,6 +20,7 @@ using Rnwood.Smtp4dev.Data;
 using Rnwood.Smtp4dev.Service;
 using Serilog;
 using System.Linq;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.ResponseCompression;
@@ -31,8 +32,8 @@ namespace Rnwood.Smtp4dev
 {
     public class Startup
     {
-        // private const string InMemoryDbConnString = "Data Source=file:cachedb?mode=memory&cache=shared";
-        // private SqliteConnection keepAliveConnection;
+        private const string InMemoryDbConnString = "Data Source=file:cachedb?mode=memory&cache=shared";
+        private SqliteConnection keepAliveConnection;
 
         public Startup(IConfiguration configuration)
         {
@@ -66,21 +67,69 @@ namespace Rnwood.Smtp4dev
             ServerOptions serverOptions = Configuration.GetSection("ServerOptions").Get<ServerOptions>();
 
             services.AddDbContext<Smtp4devDbContext>(opt =>
-            {
-                var provider = Configuration.GetSection("Database:Provider").Value;
+                    {
+                        if (string.IsNullOrEmpty(serverOptions.Database))
+                        {
+                            Log.Logger.Information("Using in memory database.");
 
-                if (provider == "sqlserver")
-                {
-                    Log.Logger.Information("Using SQL Server database.");
-                    opt.UseSqlServer(Configuration.GetConnectionString("DefaultConnection"));
-                }
-                else
-                {
-                    var dbLocation = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "smtp4dev.db");
-                    Log.Logger.Information("Using Sqlite database at {dbLocation}", dbLocation);
-                    opt.UseSqlite($"Data Source={dbLocation}");
-                }
-            }, ServiceLifetime.Scoped, ServiceLifetime.Singleton);
+                            //Must be held open to keep the memory DB alive
+                            keepAliveConnection = new SqliteConnection(InMemoryDbConnString);
+                            keepAliveConnection.Open();
+                            opt.UseSqlite(InMemoryDbConnString);
+                        }
+                        else
+                        {
+                            var dbLocation = Path.GetFullPath(serverOptions.Database);
+                            if (serverOptions.RecreateDb && File.Exists(dbLocation))
+                            {
+                                Log.Logger.Information("Deleting Sqlite database.");
+                                File.Delete(dbLocation);
+                            }
+
+                            Log.Logger.Information("Using Sqlite database at {dbLocation}", dbLocation);
+
+                            opt.UseSqlite($"Data Source={dbLocation}");
+                        }
+
+
+
+                        using var context = new Smtp4devDbContext((DbContextOptions<Smtp4devDbContext>)opt.Options);
+                        if (string.IsNullOrEmpty(serverOptions.Database))
+                        {
+                            context.Database.Migrate();
+                            context.SaveChanges();
+                        }
+                        else
+                        {
+
+                            var pendingMigrations = context.Database.GetPendingMigrations();
+                            if (pendingMigrations.Any())
+                            {
+                                Log.Logger.Information("Updating DB schema with migrations: {migrations}", string.Join(", ", pendingMigrations));
+                                context.Database.Migrate();
+                                context.SaveChanges();
+                            }
+                        }
+
+                        if (!context.ImapState.Any())
+                        {
+                            context.Add(new ImapState
+                            {
+                                Id = Guid.Empty,
+                                LastUid = 1
+                            });
+                            context.SaveChanges();
+                        }
+
+                        //For message before delivered to was added, assume all recipients.
+                        foreach (var m in context.Messages.Where(m => m.DeliveredTo == null))
+                        {
+                            m.DeliveredTo = m.To;
+                        }
+                        context.SaveChanges();
+
+
+                    }, ServiceLifetime.Scoped, ServiceLifetime.Singleton);
 
 
             services.AddSingleton<ISmtp4devServer, Smtp4devServer>();

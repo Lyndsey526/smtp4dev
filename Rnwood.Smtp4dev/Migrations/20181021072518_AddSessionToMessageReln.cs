@@ -8,7 +8,7 @@ namespace Rnwood.Smtp4dev.Migrations
         protected override void Up(MigrationBuilder migrationBuilder)
         {
 
-            migrationBuilder.Sql(@"SELECT * INTO Messages_temp FROM Messages");
+            migrationBuilder.Sql(@"CREATE TABLE Messages_temp AS SELECT * FROM Messages");
 
             migrationBuilder.DropTable(
               name: "Messages");
@@ -32,10 +32,7 @@ namespace Rnwood.Smtp4dev.Migrations
                 table: "Messages",
                 column: "SessionId");
 
-            migrationBuilder.Sql(@"
-                INSERT INTO Messages (Id, [From], [To], ReceivedDate, Subject, Data, MimeParseError, SessionId)
-                SELECT Id, [From], [To], ReceivedDate, Subject, Data, MimeParseError, NULL
-                FROM Messages_temp");
+            migrationBuilder.Sql(@"INSERT INTO Messages SELECT *, null as SessionId FROM Messages_Temp");
 
             migrationBuilder.DropTable(
               name: "Messages_temp");

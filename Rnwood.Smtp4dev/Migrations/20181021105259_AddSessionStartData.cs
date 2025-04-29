@@ -1,64 +1,41 @@
-﻿using Microsoft.EntityFrameworkCore.Migrations;
+﻿using System;
+using Microsoft.EntityFrameworkCore.Migrations;
 
 namespace Rnwood.Smtp4dev.Migrations
 {
     public partial class AddSessionStartData : Migration
     {
         protected override void Up(MigrationBuilder migrationBuilder)
-        {
-            migrationBuilder.Sql(@"
-    SELECT * INTO MessagesTemp FROM Messages;
+        { 
 
-    DROP TABLE Messages;
+            migrationBuilder.Sql(@"CREATE TABLE Sessions_temp AS SELECT * FROM Sessions");
 
-    CREATE TABLE Messages (
-        Id UNIQUEIDENTIFIER NOT NULL,
-        [From] NVARCHAR(MAX),
-        [To] NVARCHAR(MAX),
-        ReceivedDate DATETIME2 NOT NULL,
-        Subject NVARCHAR(MAX),
-        Data VARBINARY(MAX),
-        MimeParseError NVARCHAR(MAX),
-        SessionId UNIQUEIDENTIFIER,
-        AttachmentCount INT NOT NULL DEFAULT 0,
-        IsUnread BIT NOT NULL DEFAULT 0,
-        RelayError NVARCHAR(MAX),
-        ImapUid INT NOT NULL
-    );
+            migrationBuilder.DropTable(
+              name: "Sessions");
 
-    INSERT INTO Messages (
-        Id,
-        [From],
-        [To],
-        ReceivedDate,
-        Subject,
-        Data,
-        MimeParseError,
-        SessionId,
-        AttachmentCount,
-        IsUnread,
-        RelayError,
-        ImapUid
-    )
-    SELECT 
-        Id,
-        [From],
-        [To],
-        ReceivedDate,
-        Subject,
-        Data,
-        MimeParseError,
-        SessionId,
-        AttachmentCount,
-        IsUnread,
-        RelayError,
-        ROW_NUMBER() OVER (ORDER BY ReceivedDate) AS ImapUid
-    FROM MessagesTemp;
+            migrationBuilder.CreateTable(
+             name: "Sessions",
+             columns: table => new
+             {
+                 Id = table.Column<Guid>(nullable: false),
+                 Log = table.Column<string>(nullable: true),
+                 NumberOfMessages = table.Column<int>(nullable: false),
+                 ClientAddress = table.Column<string>(nullable: true),
+                 ClientName = table.Column<string>(nullable: true),
+                 EndDate = table.Column<DateTime>(nullable: true),
+                 StartDate = table.Column<DateTime>(nullable: false)
+             },
+             constraints: table =>
+             {
+                 table.PrimaryKey("PK_Sessions", x => x.Id);
+             });
 
-    DROP TABLE MessagesTemp;
+            migrationBuilder.Sql(@"INSERT INTO Sessions SELECT *, EndDate as StartDate FROM Sessions_Temp");
 
-    CREATE INDEX IX_Messages_SessionId ON Messages (SessionId);
-");
+            migrationBuilder.DropTable(
+              name: "Sessions_temp");
+
+
         }
     }
 }
